@@ -1,26 +1,21 @@
 import pandas as pd
 
-def load_dataset(file_path):
+def print_country_names(filename):
     try:
-        dataset = pd.read_csv(file_path)
-        return dataset
+        # Load the dataset using pandas
+        df = pd.read_csv(filename)
+
+        # Check if the "country_full" column exists in the dataset
+        if 'country_full' in df.columns:
+            # Extract the values from the "country_full" column and print them
+            country_names = df['country_full'].values
+            for country in country_names:
+                print(country)
+        else:
+            print("Error: 'country_full' column not found in the dataset.")
     except FileNotFoundError:
-        print("Error: The file could not be found.")
-        return None
-
-def filter_teams_by_confederation(dataset, confederation):
-    filtered_teams = dataset[dataset['confederation'].str.contains(confederation)]
-    return filtered_teams
-
-def main():
-    file_path = "fifa_ranking.csv"
-    confederation_to_filter = "UEFA"
-
-    dataset = load_dataset(file_path)
-    if dataset is not None:
-        uefa_teams = filter_teams_by_confederation(dataset, confederation_to_filter)
-        print("Soccer teams in UEFA confederation:")
-        print(uefa_teams[['rank', 'country_full', 'confederation']])
+        print(f"Error: File '{filename}' not found.")
 
 if __name__ == "__main__":
-    main()
+    file_name = "fifa_ranking.csv"
+    print_country_names(file_name)
