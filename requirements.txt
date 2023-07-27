@@ -1,0 +1,404 @@
+﻿---
+title: "A closer look at the FIFA Ranking"
+author: "Jonathan Bouchet"
+date: "`r Sys.Date()`"
+output:
+ html_document:
+    fig_width: 10
+    fig_height: 7
+    toc: yes
+    number_sections : yes
+    code_folding: show
+---
+
+<center><img src="https://statics.sportskeeda.com/wp-content/uploads/2014/04/confed-2162289.jpg"></center>
+
+<hr>
+
+<strong>History :</strong>
+
+* _version 1 : initial commit_ 
+* _version 2 : added mean ranking vs year, comments_
+* _version 3 : fix North, South Korea names, thanks Helmut_
+* _version 4 : added section to explain the toalpoints variable, thanks Joost_
+* _version 5 : added top leader ranking_
+
+<hr>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
+```
+
+```{r}
+#load packages and csv file
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(RColorBrewer)
+library(ggthemes)
+library(reshape2)
+library(gridExtra)
+library(rworldmap)
+```
+
+# Introduction
+
+This dataset is about the FIFA ranking. [FIFA](https://en.wikipedia.org/wiki/FIFA)(Fédération Internationale de Football Association) is an association the association of football, futsal, and beach soccer and is responsible for the organization of football's major international tournaments. 
+
+This dataset contains all available FIFA men's international soccer rankings from August 1993 to April 2018.
+
+It was founded in 1904 so we don't have the full history. However we can look at :
+
+* recent years: emergence of new country leaders
+* status before the `2018 World Cup` in Russia
+* how the FIFA's ranking works
+
+Things to remember:
+
+* there are 211 men's national football teams affiliated to FIFA, through their national football associations.
+* teams are grouped into `confederation`: 
+
+  * Asia – Asian Football Confederation `(AFC)A`
+  * Africa – Confédération Africaine de Football `(CAF)A`
+  * North and Central America and the Caribbean – Confederation of North, Central American and Caribbean Association Football `(CONCACAF)`
+  * South America – Confederación Sudamericana de Fútbol `(CONMEBOL)`
+  * Oceania – Oceania Football Confederation `(OFC)`
+  * Europe – Union of European Football Associations `(UEFA)`
+
+# Data preparation
+
+The data is pretty clean. However because the name for some countries:
+
+* have changed in recent years
+* are sometimes different from `R package(rworldmap)`
+
+there is a lot of name's fixing
+
+* for the map, I selected the last entry(and most recent) entry: `2018-04-12`
+
+```{r}
+fifa_ranking <- read.csv('../input/fifa_ranking.csv',sep=',',stringsAsFactors=F)
+fifa_ranking$region <- tolower(fifa_ranking$country_full)
+
+fifa_ranking[fifa_ranking$region == 'antigua and barbuda','region'] <- 'antigua'
+fifa_ranking[fifa_ranking$region == 'brunei darussalam','region'] <- 'brunei'
+fifa_ranking[fifa_ranking$region == 'cape verde islands','region'] <- 'cape verde'
+fifa_ranking[fifa_ranking$region == "china pr","region"] <- 'china'
+fifa_ranking[fifa_ranking$region == "côte d'ivoire","region"] <- 'ivory coast'
+fifa_ranking[fifa_ranking$region == "congo dr","region"] <- 'democratic republic of the congo'
+fifa_ranking[fifa_ranking$region == "chinese taipei","region"] <-"taiwan"
+fifa_ranking[fifa_ranking$region == "fyr macedonia","region"] <- 'macedonia'
+#fifa_ranking[fifa_ranking$region == "hong kong","region"] <- ''
+fifa_ranking[fifa_ranking$region == "ir iran","region"] <- 'iran'
+fifa_ranking[fifa_ranking$region == "korea dpr","region"] <- 'north korea'
+fifa_ranking[fifa_ranking$region == "korea republic","region"] <- 'south korea'
+fifa_ranking[fifa_ranking$region == "kyrgyz republic","region"] <- 'kyrgyzstan'
+
+fifa_ranking[fifa_ranking$region == "northern ireland","region"] <- 'ireland'
+fifa_ranking <- subset(fifa_ranking, fifa_ranking$region != "republic of ireland")
+fifa_ranking <- subset(fifa_ranking, fifa_ranking$region != "wales")
+
+fifa_ranking[fifa_ranking$region == "trinidad and tobago","region"] <- 'trinidad'
+fifa_ranking[fifa_ranking$region == "england","region"] <- 'uk'
+```
+
+```{r}
+last_ranking <- data.frame(fifa_ranking %>% 
+                             dplyr::filter(rank_date == '2018-04-12') %>% 
+                             dplyr::select(region, country_abrv, confederation, rank, total_points) %>%
+                             arrange(region))
+#last_ranking$region <- tolower(last_ranking$country_full)
+```
+
+```{r}
+countries_map <-map_data("world")
+countries_map$region <-tolower(countries_map$region)
+```
+
+
+```{r}
+res <- data.frame(left_join(countries_map, last_ranking %>% select(region, confederation),by='region'))
+```
+
+# Results
+
+## Definition of the `Total points`
+
+The total number of points: `P` = `M` x `I` x `T` x `C`, where :
+
+* `M`: Points for match result(3 points for a victory, 1 point for a draw and 0 points for a defeat. In a penalty shoot-out, the winning team gains 2 points and the losing team gains 1 point.)
+* `I`: Importance of match:
+    * Friendly match (including small competitions): `I` = 1.0
+    * FIFA World Cup™ qualifier or confederation-level qualifier: `I` = 2.5
+    * Confederation-level final competition or FIFA Confederations Cup: `I` = 3.0
+    * FIFA World Cup™ final competition: `I` = 4.0
+* `T`: Strength of opposing team. The strength of the opponents is based on the formula: `200 – the ranking position of the opponents`. 
+* `C`: Strength of confederation: defned as the mean value of the confederations to which the two competing teams belong is used.
+    * `CONMEBOL`: 1.00
+    * `UEFA`: 0.99
+    * `AFC`/`CAF`/`OFC`/`CONCACAF`: 0.85
+
+```{r}
+histo <- last_ranking %>% 
+  ggplot(aes(x=reorder(region,-rank),y=total_points,fill=confederation)) +
+  geom_bar(stat='identity') + coord_flip() + theme_fivethirtyeight(10) + 
+  scale_fill_brewer(name='',palette='Paired') + 
+  theme(legend.position='None', 
+        panel.grid.major.y= element_blank()) +
+  labs(title='Rank, with respect their total points, of the 211 countries in the FIFA',
+       subtitle='as of April 2018')
+
+map<-ggplot(res) + 
+  geom_polygon(aes(x=long, y=lat,group=group, fill = confederation)) + 
+  theme_fivethirtyeight() + 
+  theme(
+    panel.grid.major = element_blank(),
+    axis.text=element_blank(),
+    axis.ticks=element_blank(), 
+    legend.text=element_text(size=10),legend.key.size = unit(.3, "cm")) +
+  scale_fill_brewer(name='',palette='Paired', na.value='black') +
+  coord_fixed(1.3) + labs(subtitle='Map of the World with the six confederations')
+```
+
+## Results
+
+```{r fig.width=10, fig.height=16, fig.align='center',eval=T}
+histo + annotation_custom(ggplotGrob(map),xmin=0, xmax=100,ymin=300,ymax=1700)
+```
+
+As expected, we found:
+
+* the usual suspects as leaders:
+    * countries from the `old` continent: `Germany`, `Portugal`, `France`, `Spain`, the `UK`
+    * countries from South America, like (of course) `Brazil`, `Argentina`
+* `Mexico` is the first top country from North America, to appear in this ranking
+* `Iran` is the first top country from the Asia confederation, to appear in this ranking
+
+_note to self_: need to find a better map to match countries's name
+
+### Breakdown by `Confederation`
+
+```{r fig.width=12, fig.height=10, fig.align='center',eval=T}
+last_ranking %>% 
+  ggplot(aes(x=reorder(region,-rank),y=total_points,fill=confederation)) +
+  geom_bar(stat='identity') + coord_flip() + theme_fivethirtyeight(10) + 
+  scale_fill_brewer(name='',palette='Paired') + 
+  theme(legend.position='None', 
+        panel.grid.major.y= element_blank()) +
+  labs(title='Rank, with respect their total points, of the 211 countries in the FIFA',
+       subtitle='as of April 2018') + facet_wrap(~confederation,scales='free')
+```
+
+* that's interesting the (somehow) imbalance between `Confederation`
+* it might actually be more difficult to qualify for a cup where there are a lot of Countries then.
+* it might also impact the average (rank, total_points) values
+
+# Confederation ranking
+
+```{r fig.width=10, fig.height=6, fig.align='center',eval=T}
+g0<-last_ranking %>% group_by(confederation) %>% ggplot(aes(x=reorder(confederation, total_points, FUN=mean),y=total_points,fill=confederation)) + geom_boxplot(alpha=.75,size=.25) + geom_jitter(shape=16,position=position_jitter(0.2),size=1,alpha=.25) +
+  theme_fivethirtyeight() + theme(legend.position='None') + 
+  scale_fill_brewer(name='',palette='Paired') + coord_flip() + labs(title='Confederation average points')
+g1<-last_ranking %>% group_by(confederation) %>% ggplot(aes(x=reorder(confederation, -rank, FUN=mean),y=rank,fill=confederation)) + geom_boxplot(alpha=.75,size=.25) + geom_jitter(shape=16,position=position_jitter(0.2),size=1,alpha=.25) +
+  theme_fivethirtyeight() + theme(legend.position='None') + 
+  scale_fill_brewer(name='',palette='Paired') + coord_flip() + labs(title='Confederation average ranking')
+
+grid.arrange(g0,g1,ncol=2)
+```
+
+* clearly the South America confederation comes as favorite in this World Cup by having the average `total_points` and best `rank`
+* and of course(by definition) there is a correlation: `higher total_points` --> `best rank`
+
+# Historical ranking per Confederation{.tabset .tabset-fade .tabset-pills}
+
+## codes
+
+* creation of 2 `Dates` for averaging scores / rank: one by `month`, the other by `year`
+* a quick function to adjust the number of regions per Confederation
+
+```{r}
+fifa_ranking$rank_date_month <- as.Date(sapply(fifa_ranking$rank_date, function(x) paste0(strsplit(x,'-')[[1]][1],'-',strsplit(x,'-')[[1]][2],'-01')))
+fifa_ranking$rank_date_year <- as.Date(sapply(fifa_ranking$rank_date, function(x) paste0(strsplit(x,'-')[[1]][1],'-01-01')))
+```
+
+```{r}
+makeHistoryRank <- function(conf){
+	temp <- data.frame(fifa_ranking %>% filter(confederation == conf) %>% group_by(rank_date_year, region) %>% summarise(meanRank = mean(rank)))
+	totRegions <- length(unique(temp$region))
+	totCols<-4
+	if(totRegions<12){
+	  totCols<-4
+	}
+	else{
+	  totCols<-6
+	}
+	mycols<-colorRampPalette(brewer.pal(11,'Paired'))(totRegions)
+	hist <- temp %>% ggplot(aes(x= rank_date_year,y=meanRank,color=meanRank)) + 
+	  geom_line(aes(group=1),alpha=1,size=1.) +
+	  theme_fivethirtyeight(8) +
+	  scale_y_reverse() + ylim(220,0) + 
+	  labs(title = paste0('Average ranking since 1993 for countries in the ',conf,' confederation')) +
+	  facet_wrap(~region,ncol=totCols) + 
+	  scale_color_gradientn(colours = viridis::viridis(20)) + 
+	  guides(color=F)
+	return(hist)
+}
+
+mylist<-list()
+cnt<-0
+totConfederations <- sort(unique(fifa_ranking$confederation))
+for(conf in totConfederations){
+  cnt<-cnt+1
+  mylist[[cnt]] <- makeHistoryRank(conf)
+}
+```
+
+## `AFC`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[1]]
+```
+
+* `Australia` and `Iran` are on the top since 1993
+* watching for the `Palestine` in this World Cup
+
+## `CAF`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[2]]
+```
+
+* `Cape Verde` has been increasing its rank quite steadily since 1993
+
+## `CONCACAF`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[3]]
+```
+
+* `Mexico` and the `USA` have been relatively stable at the top rank
+* despite this fact, the `USA` are not qualified for the World Cup 2018
+* we also the recent rise of `Costa Rica`
+* `Panama` got a ~100 positions increase in the ranking and might be interesting to follow in the next years.
+
+## `CONMEBOL`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[4]]
+```
+
+* first comment is, as seen in the previous section, the overall ranking of this Confederation is really high.
+* `Brazil` and `Argentina` trust the first ranks since 1993.
+* to follow: `Venezuela`, `Peru` and `Chile` might be interesing to follow because of their rank increase too.
+
+
+## `OFC`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[5]]
+```
+
+* `OFC` is the _weakest_ confederation but `New Zeland` has been the first ranked region since 1993.
+* there aren't really regions that are improving since 1993
+
+## `UEFA`
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+mylist[[6]]
+```
+
+* `Montenegro` appeared recently in this confederation and saw a steady incrase; same for `Bosnia and herzegovina`
+
+# Historical Leader Ranking
+
+Inspiration for this plot is from the [wikipage](https://en.wikipedia.org/wiki/FIFA_World_Rankings)
+
+I simply group the data by `month` and `country` and calculate the median rank (as integer)
+
+```{r}
+temp<-data.frame(fifa_ranking %>% group_by(rank_date_month, region) %>% 
+                   summarize(medianRank = median(rank)) %>% dplyr::filter(medianRank < 2))
+
+# make colors according the country name(known in advance)
+
+countries <- sort(unique(temp$region))
+colors <-c('#87CEEB','#DC143C','#FFD700','#000080','#E5E5E5','#4169E1','#FFA500','#8B2500')
+cols<-data.frame('region'=countries,'color'=colors)
+cols$region <- as.character(cols$region)
+
+temp<-data.frame(left_join(temp, cols, by='region'))
+```
+
+```{r fig.width=4, fig.height=10, fig.align='center',eval=T}
+temp %>% ggplot(aes(x= rank_date_month,y=1)) + geom_histogram(aes(fill=color),stat='identity',color='black',size=.001) + scale_fill_identity() + theme_fivethirtyeight() + coord_flip() + scale_x_date(date_breaks = "1 year", date_labels =  "%Y") + labs(title='FIFA World Ranking Leaders', subtitle='on a montly basis') + theme(legend.position='right',legend.direction='vertical',axis.text.x=element_blank(),panel.grid.major.x=element_blank()) + ggplot2::annotate("text", x=as.Date("1997-01-01"), y = 1.2, label = "BRAZIL", size=4, colour="gray30") + ggplot2::annotate("text", x=as.Date("2002-01-01"), y = 1.22, label = "FRANCE", size=4, colour="gray30") + 
+ggplot2::annotate("text", x=as.Date("2004-01-01"), y = 1.2, label = "BRAZIL", size=4, colour="gray30") + 
+ggplot2::annotate("text", x=as.Date("2007-03-01"), y = 1.2, label = "ITALY", size=4, colour="gray30") + 
+ggplot2::annotate("text", x=as.Date("2011-06-01"), y = 1.32, label = "NETHERLANDS", size=4, colour="gray30") + 
+ggplot2::annotate("text", x=as.Date("2013-06-01"), y = 1.2, label = "SPAIN", size=4, colour="gray30") +
+ggplot2::annotate("text", x=as.Date("2016-01-01"), y = 1.23, label = "BELGIUM", size=4, colour="gray30") + 
+ggplot2::annotate("text", x=as.Date("2016-08-01"), y = 1.27, label = "ARGENTINA", size=4, colour="gray30") + ggplot2::annotate("text", x=as.Date("2018-01-01"), y = 1.24, label = "GERMANY", size=4, colour="gray30") + 
+ylim(0,1.5)
+```
+
+* `Brazil` was ultra dominant in the `90's` and the first half of `2000`
+* `France` had a period as the leader after they won the `98` World Cup edition.
+* `Spain` took the lead in the `2010's`.
+* what we may observe too is that the number of countries as leader seems to increase in recent years, meaning there is not anymore the hegemony of one country as it was the case with `Brazil`.
+
+
+# Fifa system ranking
+
+As pointed by [Joost Berkhout](https://www.kaggle.com/joostberkhout) in the comments, the `total points` variable seems to be zero until 2011.
+
+As an example, the plot below shows the rank and the `toal_points` of Brazil, for the entire dataset.
+
+```{r fig.width=10, fig.height=8, fig.align='center',eval=T}
+g0<-fifa_ranking %>% 
+  dplyr::filter(region=='brazil') %>% 
+  dplyr::select(rank,total_points, previous_points, rank_change, cur_year_avg, rank_date_year) %>%
+  group_by(rank_date_year) %>% mutate(meanRank = mean(rank,na.rm=T), meanPoints = mean(total_points)) %>%
+  ggplot(aes(x=rank_date_year)) + geom_line(aes(y=meanRank),size=2,alpha=0.25) + geom_point(aes(y=meanRank),size=2) +
+  theme_fivethirtyeight() + scale_y_reverse() + labs(title = 'Brazil rank')
+
+g1<-fifa_ranking %>% dplyr::filter(region=='brazil') %>% 
+  dplyr::select(rank,total_points, previous_points, rank_change, cur_year_avg, rank_date_year) %>%
+  group_by(rank_date_year) %>% mutate(meanRank = mean(rank,na.rm=T), meanPoints = mean(total_points))%>% 
+  ggplot(aes(x=rank_date_year)) + geom_line(aes(y=meanPoints),size=2,alpha=0.25,) + geom_point(aes(y=meanPoints),size=2) +
+  theme_fivethirtyeight() + labs(title= 'Brazil\'s total points') +
+  geom_curve(aes(x = as.Date("2007-01-01"), y = 500, xend = as.Date("2009-11-01"), yend =25),curvature = -.05,arrow = arrow(length = unit(0.02, "npc")),color='gray30',size=.25) + 
+  ggplot2::annotate("text", x=as.Date("2006-01-01"), y = 600, label = "Fifa ranking system update", size=4, colour="gray30")
+
+grid.arrange(g0,g1,ncol=1)
+```
+
+The `total_points` is indeed null for years < 2011. The reason is explained in the [wikipedia](https://en.wikipedia.org/wiki/FIFA_World_Rankings#2006_ranking_system_update) and the `Fifa` [webpage](http://www.fifa.com/fifa-world-ranking/procedure/men.html):
+
+* the `total_points` is calculated based on the results of the previous 4 years([details](http://www.fifa.com/fifa-world-ranking/procedure/men.html))
+* there were 4 periods in the `ranking` system:
+
+    * `1993 -1998` : describes as _simplistic approach_
+    * `1999 ranking system update` : major update. This new ranking was used from `1999` to `2006`
+    * `2006 ranking system update`: the main changes is that _the evaluation period was cut from eight to four years, and a simpler method of calculation is now used to determine rankings._
+    
+So it explains why the `total_points` is null before 2011: a period of 4 years prior the evaluation year is needed to evaluate the number of `total_points`.
+
+# Ranking that determines the `World Cup 2018` qualifications
+
+_to check_ 
+
+According the [wikipedia page](https://en.wikipedia.org/wiki/2018_FIFA_World_Cup_qualification), the qualifications run from `(12) March 2015` to `(15) November 2015`. So I filter the dataset to a date close to the end date and look at the `rank`, `total points` at that precise time
+
+```{r}
+ deadLine <- data.frame(fifa_ranking %>% filter(rank_date == '2017-11-23'))
+```
+
+```{r fig.width=10, fig.height=16, fig.align='center',eval=F}
+deadLine %>% 
+  ggplot(aes(x=reorder(region,-rank),y=total_points,fill=confederation)) +
+  geom_bar(stat='identity') + coord_flip() + theme_fivethirtyeight(10) + 
+  scale_fill_brewer(name='',palette='Paired') + 
+  theme(legend.position='None', 
+        panel.grid.major.y= element_blank()) +
+  labs(title='Rank, with respect their total points, of the 211 countries in the FIFA',
+       subtitle='that determines the qualifications for the 2018 World Cup')
+```
